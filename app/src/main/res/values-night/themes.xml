@@ -1,0 +1,11 @@
+<resources>
+    <style name="Theme.FotoDB" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#A7C9A9</item>
+        <item name="colorPrimaryVariant">#356B52</item>
+        <item name="colorOnPrimary">#142219</item>
+        <item name="colorSecondary">#B7D5B9</item>
+        <item name="colorSecondaryVariant">#63876C</item>
+        <item name="colorOnSecondary">#142219</item>
+        <item name="android:statusBarColor">?attr/colorSurface</item>
+    </style>
+</resources>

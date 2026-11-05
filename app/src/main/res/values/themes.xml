@@ -1,0 +1,15 @@
+<resources>
+    <style name="Theme.FotoDB" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#356B52</item>
+        <item name="colorPrimaryVariant">#244B39</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#A7C9A9</item>
+        <item name="colorSecondaryVariant">#63876C</item>
+        <item name="colorOnSecondary">#142219</item>
+        <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
+        <item name="android:navigationBarColor">?attr/colorSurface</item>
+        <item name="android:windowLightStatusBar">true</item>
+
+        <item name="materialButtonStyle">@style/Widget.MaterialComponents.Button</item>
+    </style>
+</resources>
