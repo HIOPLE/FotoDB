@@ -115,11 +115,11 @@ final class ImageDatabase extends SQLiteOpenHelper {
         }
     }
 
-    void updateText(String uri, String description, String tags) {
+    boolean updateText(String uri, String description, String tags) {
         ContentValues values = new ContentValues();
         values.put("description", description);
         values.put("tags", tags);
-        getWritableDatabase().update("images", values, "uri=?", new String[]{uri});
+        return getWritableDatabase().update("images", values, "uri=?", new String[]{uri}) == 1;
     }
 
     void remove(String uri) { getWritableDatabase().delete("images", "uri=?", new String[]{uri}); }

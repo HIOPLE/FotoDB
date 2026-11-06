@@ -10,6 +10,8 @@ import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.DocumentsContract;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -450,6 +452,61 @@ public final class MainActivity extends AppCompatActivity {
         tagParams.topMargin = dp(8);
         form.addView(tags, tagParams);
 
+        final Handler autoSaveHandler = new Handler(Looper.getMainLooper());
+        final Button save = button("无待保存修改");
+        save.setEnabled(false);
+        final int[] editVersion = {0};
+        final int[] savedVersion = {0};
+        final Runnable autoSave = () -> {
+            final int version = editVersion[0];
+            if (version == savedVersion[0]) return;
+            String descriptionText = description.getText().toString().trim();
+            String normalizedTags = normalizeTags(tags.getText().toString());
+            save.setText("正在保存…");
+            worker.execute(() -> {
+                try {
+                    if (!database.updateText(item.uri, descriptionText, normalizedTags)) {
+                        throw new IllegalStateException("Image record no longer exists");
+                    }
+                    runOnUiThread(() -> {
+                        savedVersion[0] = version;
+                        if (isFinishing() || isDestroyed()) return;
+                        if (editVersion[0] == version) {
+                            save.setText("已自动保存");
+                            save.setEnabled(false);
+                        }
+                        loadResults();
+                    });
+                } catch (Exception error) {
+                    runOnUiThread(() -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        if (editVersion[0] == version) {
+                            save.setText("保存失败，重试");
+                            save.setEnabled(true);
+                        }
+                        Toast.makeText(MainActivity.this, "自动保存失败，请重试", Toast.LENGTH_LONG).show();
+                    });
+                }
+            });
+        };
+        save.setOnClickListener(v -> {
+            autoSaveHandler.removeCallbacks(autoSave);
+            autoSave.run();
+        });
+        TextWatcher autoSaveWatcher = new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                editVersion[0]++;
+                save.setText("待保存…");
+                save.setEnabled(false);
+                autoSaveHandler.removeCallbacks(autoSave);
+                autoSaveHandler.postDelayed(autoSave, 500);
+            }
+            @Override public void afterTextChanged(Editable s) { }
+        };
+        description.addTextChangedListener(autoSaveWatcher);
+        tags.addTextChangedListener(autoSaveWatcher);
+
         final AlertDialog[] dialogHolder = new AlertDialog[1];
         final OcrProvider[] ocrProvider = {null};
         final boolean[] ocrRunning = {false};
@@ -596,23 +653,8 @@ public final class MainActivity extends AppCompatActivity {
                     .create();
             confirm.show();
         });
-        Button cancel = button("取消");
+        Button cancel = button("关闭");
         cancel.setOnClickListener(v -> dialogHolder[0].dismiss());
-        Button save = button("保存");
-        save.setOnClickListener(v -> {
-            String descriptionText = description.getText().toString().trim();
-            String normalizedTags = normalizeTags(tags.getText().toString());
-            worker.execute(() -> {
-                database.updateText(item.uri, descriptionText, normalizedTags);
-                runOnUiThread(() -> {
-                    if (!isFinishing() && !isDestroyed()) {
-                        Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
-                        dialogHolder[0].dismiss();
-                        loadResults();
-                    }
-                });
-            });
-        });
         Button share = button("分享图片");
         share.setOnClickListener(v -> shareImage(item));
         actions.addView(remove, new LinearLayout.LayoutParams(0, dp(48), 1));
@@ -628,6 +670,8 @@ public final class MainActivity extends AppCompatActivity {
                 .create();
         dialogHolder[0] = dialog;
         dialog.setOnDismissListener(ignored -> {
+            autoSaveHandler.removeCallbacks(autoSave);
+            autoSave.run();
             if (ocrRunning[0]) return;
             if (ocrProvider[0] != null) {
                 ocrProvider[0].close();
