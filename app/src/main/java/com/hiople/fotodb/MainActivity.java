@@ -708,20 +708,23 @@ public final class MainActivity extends AppCompatActivity {
         dialog.setContentView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         final android.graphics.Matrix matrix = new android.graphics.Matrix();
-        final Bitmap[] bitmapHolder = new Bitmap[1];
+        final android.graphics.drawable.Drawable[] drawableHolder = new android.graphics.drawable.Drawable[1];
         final float[] scale = {1f};
         final int[] rotation = {0};
         Runnable fit = () -> {
-            Bitmap bitmap = bitmapHolder[0];
-            if (bitmap == null || image.getWidth() == 0 || image.getHeight() == 0) return;
+            android.graphics.drawable.Drawable drawable = drawableHolder[0];
+            if (drawable == null || image.getWidth() == 0 || image.getHeight() == 0) return;
+            int sourceWidth = drawable.getIntrinsicWidth();
+            int sourceHeight = drawable.getIntrinsicHeight();
+            if (sourceWidth <= 0 || sourceHeight <= 0) return;
             matrix.reset();
             boolean sideways = rotation[0] % 180 != 0;
-            float rotatedWidth = sideways ? bitmap.getHeight() : bitmap.getWidth();
-            float rotatedHeight = sideways ? bitmap.getWidth() : bitmap.getHeight();
+            float rotatedWidth = sideways ? sourceHeight : sourceWidth;
+            float rotatedHeight = sideways ? sourceWidth : sourceHeight;
             float factor = Math.min(image.getWidth() / rotatedWidth, image.getHeight() / rotatedHeight);
             matrix.postRotate(rotation[0]);
             matrix.postScale(factor, factor);
-            android.graphics.RectF rect = new android.graphics.RectF(0, 0, bitmap.getWidth(), bitmap.getHeight());
+            android.graphics.RectF rect = new android.graphics.RectF(0, 0, sourceWidth, sourceHeight);
             matrix.mapRect(rect);
             matrix.postTranslate((image.getWidth() - rect.width()) / 2f - rect.left, (image.getHeight() - rect.height()) / 2f - rect.top);
             scale[0] = 1f;
@@ -772,12 +775,34 @@ public final class MainActivity extends AppCompatActivity {
                 });
             }
         });
-        dialog.setOnDismissListener(d -> WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).show(WindowInsetsCompat.Type.systemBars()));
+        dialog.setOnDismissListener(d -> {
+            if (drawableHolder[0] instanceof pl.droidsonroids.gif.GifDrawable) {
+                ((pl.droidsonroids.gif.GifDrawable) drawableHolder[0]).stop();
+            } else if (android.os.Build.VERSION.SDK_INT >= 28
+                    && drawableHolder[0] instanceof android.graphics.drawable.AnimatedImageDrawable) {
+                ((android.graphics.drawable.AnimatedImageDrawable) drawableHolder[0]).stop();
+            }
+            WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).show(WindowInsetsCompat.Type.systemBars());
+        });
         dialog.show();
         if (dialog.getWindow() != null) dialog.getWindow().setLayout(-1, -1);
         worker.execute(() -> {
-            Bitmap bitmap = loadViewerBitmap(item.uri, getResources().getDisplayMetrics().widthPixels, getResources().getDisplayMetrics().heightPixels);
-            if (bitmap != null) runOnUiThread(() -> { if (dialog.isShowing()) { bitmapHolder[0] = bitmap; image.setImageBitmap(bitmap); fit.run(); } });
+            android.graphics.drawable.Drawable drawable = loadViewerDrawable(item,
+                    getResources().getDisplayMetrics().widthPixels,
+                    getResources().getDisplayMetrics().heightPixels);
+            if (drawable != null) runOnUiThread(() -> {
+                if (dialog.isShowing()) {
+                    drawableHolder[0] = drawable;
+                    image.setImageDrawable(drawable);
+                    fit.run();
+                    if (drawable instanceof pl.droidsonroids.gif.GifDrawable) {
+                        ((pl.droidsonroids.gif.GifDrawable) drawable).start();
+                    } else if (android.os.Build.VERSION.SDK_INT >= 28
+                            && drawable instanceof android.graphics.drawable.AnimatedImageDrawable) {
+                        ((android.graphics.drawable.AnimatedImageDrawable) drawable).start();
+                    }
+                }
+            });
         });
     }
 
@@ -792,6 +817,28 @@ public final class MainActivity extends AppCompatActivity {
         return control;
     }
 
+    private android.graphics.drawable.Drawable loadViewerDrawable(ImageDatabase.ImageItem item, int width, int height) {
+        Uri uri = Uri.parse(item.uri);
+        if ("GIF".equals(imageType(item))) {
+            try {
+                pl.droidsonroids.gif.GifDrawable gif = new pl.droidsonroids.gif.GifDrawable(getContentResolver(), uri);
+                return gif;
+            } catch (Exception ignored) { return null; }
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            try {
+                android.graphics.ImageDecoder.Source source = android.graphics.ImageDecoder.createSource(getContentResolver(), uri);
+                return android.graphics.ImageDecoder.decodeDrawable(source, (decoder, info, src) -> {
+                    int sample = Math.max(1, Math.min(info.getSize().getWidth() / Math.max(1, width),
+                            info.getSize().getHeight() / Math.max(1, height)));
+                    decoder.setTargetSampleSize(sample);
+                });
+            } catch (Exception ignored) { return null; }
+        }
+        Bitmap bitmap = loadViewerBitmap(item.uri, width, height);
+        return bitmap == null ? null : new android.graphics.drawable.BitmapDrawable(getResources(), bitmap);
+    }
+
     private Bitmap loadViewerBitmap(String value, int width, int height) {
         Uri uri = Uri.parse(value);
         try (InputStream input = getContentResolver().openInputStream(uri)) {
@@ -799,13 +846,31 @@ public final class MainActivity extends AppCompatActivity {
             BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
             BitmapFactory.decodeStream(input, null, bounds);
             int sample = 1;
-            while (bounds.outWidth / (sample * 2) >= width && bounds.outHeight / (sample * 2) >= height) sample *= 2;
+            while (bounds.outWidth / (sample * 2) >= width || bounds.outHeight / (sample * 2) >= height) sample *= 2;
             try (InputStream stream = getContentResolver().openInputStream(uri)) {
                 if (stream == null) return null;
                 BitmapFactory.Options options = new BitmapFactory.Options(); options.inSampleSize = sample;
                 return BitmapFactory.decodeStream(stream, null, options);
             }
         } catch (Exception ignored) { return null; }
+    }
+
+    private String imageType(ImageDatabase.ImageItem item) {
+        String mime = item.mime == null ? "" : item.mime.trim().toLowerCase(java.util.Locale.ROOT);
+        if (mime.equals("image/png")) return "PNG";
+        if (mime.equals("image/jpeg") || mime.equals("image/jpg")) return "JPEG";
+        if (mime.equals("image/gif")) return "GIF";
+        String name = item.name == null ? "" : item.name;
+        int dot = name.lastIndexOf('.');
+        String extension = dot >= 0 ? name.substring(dot + 1).toLowerCase(java.util.Locale.ROOT) : "";
+        if (extension.equals("png")) return "PNG";
+        if (extension.equals("jpg") || extension.equals("jpeg")) return "JPEG";
+        if (extension.equals("gif")) return "GIF";
+        String inferredMime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension);
+        if ("image/png".equals(inferredMime)) return "PNG";
+        if ("image/jpeg".equals(inferredMime)) return "JPEG";
+        if ("image/gif".equals(inferredMime)) return "GIF";
+        return "图片";
     }
 
     private void shareImage(ImageDatabase.ImageItem item) {
@@ -891,7 +956,9 @@ public final class MainActivity extends AppCompatActivity {
                     : new LinearLayout.LayoutParams(-1, dp(92));
             cell.addView(image, imageParams);
             TextView caption = new TextView(MainActivity.this);
-            caption.setText(item.description.isEmpty() ? item.name : item.description);
+            String type = imageType(item);
+            caption.setText((item.description.isEmpty() ? item.name : item.description)
+                    + " · " + type);
             caption.setTextSize(listLayout ? 13 : 11);
             caption.setTextColor(isNight() ? Color.WHITE : Color.rgb(35, 46, 40));
             caption.setMaxLines(2);
