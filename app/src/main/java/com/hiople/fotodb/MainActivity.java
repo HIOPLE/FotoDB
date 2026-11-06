@@ -26,6 +26,7 @@ import android.widget.GridView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.util.LruCache;
@@ -416,11 +417,18 @@ public final class MainActivity extends AppCompatActivity {
     private void editItem(ImageDatabase.ImageItem item) {
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
+        ScrollView formScroll = new ScrollView(this);
+        formScroll.setFillViewport(false);
+        formScroll.setVerticalScrollBarEnabled(true);
+        LinearLayout formContent = new LinearLayout(this);
+        formContent.setOrientation(LinearLayout.VERTICAL);
+        formScroll.addView(formContent, new ScrollView.LayoutParams(-1, -2));
+        form.addView(formScroll, new LinearLayout.LayoutParams(-1, 0, 1));
         ImageView preview = new ImageView(this);
         preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
         preview.setBackgroundColor(Color.rgb(231, 235, 232));
         preview.setOnClickListener(v -> showImageViewer(item));
-        form.addView(preview, new LinearLayout.LayoutParams(-1, dp(190)));
+        formContent.addView(preview, new LinearLayout.LayoutParams(-1, dp(190)));
         worker.execute(() -> {
             Bitmap bitmap = loadThumbnail(item.uri);
             if (bitmap != null && !isFinishing() && !isDestroyed()) {
@@ -429,19 +437,19 @@ public final class MainActivity extends AppCompatActivity {
         });
         Button viewImage = button("查看大图");
         viewImage.setOnClickListener(v -> showImageViewer(item));
-        form.addView(viewImage, new LinearLayout.LayoutParams(-1, dp(42)));
+        formContent.addView(viewImage, new LinearLayout.LayoutParams(-1, dp(42)));
         EditText description = new EditText(this);
         description.setHint("图片描述");
         description.setMinLines(2);
         description.setGravity(Gravity.TOP | Gravity.START);
         description.setText(item.description);
         styleInput(description);
-        form.addView(description, new LinearLayout.LayoutParams(-1, -2));
+        formContent.addView(description, new LinearLayout.LayoutParams(-1, -2));
 
         Button recognize = button("识别文字（端侧）");
         LinearLayout.LayoutParams recognizeParams = new LinearLayout.LayoutParams(-1, dp(42));
         recognizeParams.topMargin = dp(6);
-        form.addView(recognize, recognizeParams);
+        formContent.addView(recognize, recognizeParams);
 
         EditText tags = new EditText(this);
         tags.setHint("标签，用逗号分隔");
@@ -450,7 +458,7 @@ public final class MainActivity extends AppCompatActivity {
         styleInput(tags);
         LinearLayout.LayoutParams tagParams = new LinearLayout.LayoutParams(-1, -2);
         tagParams.topMargin = dp(8);
-        form.addView(tags, tagParams);
+        formContent.addView(tags, tagParams);
 
         final Handler autoSaveHandler = new Handler(Looper.getMainLooper());
         final Button save = button("无待保存修改");
@@ -685,6 +693,13 @@ public final class MainActivity extends AppCompatActivity {
             activeOcrBitmap = null;
         });
         dialog.show();
+        if (dialog.getWindow() != null) {
+            // This dialog owns a separate window; the Activity's resize mode does not apply here.
+            WindowCompat.setDecorFitsSystemWindows(dialog.getWindow(), true);
+            dialog.getWindow().setSoftInputMode(
+                    android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+            dialog.getWindow().setLayout(-1, -1);
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
