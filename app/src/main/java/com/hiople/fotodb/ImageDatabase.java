@@ -39,11 +39,6 @@ final class ImageDatabase extends SQLiteOpenHelper {
 
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) { }
 
-
-    List<ImageItem> search(List<String> roots, String query) {
-        return search(roots, query, false);
-    }
-
     List<ImageItem> search(List<String> roots, String query, boolean regex) {
         ArrayList<ImageItem> result = new ArrayList<>();
         if (roots.isEmpty()) return result;

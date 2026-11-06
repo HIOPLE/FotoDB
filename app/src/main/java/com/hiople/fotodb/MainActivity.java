@@ -57,6 +57,9 @@ public final class MainActivity extends AppCompatActivity {
     private ImageAdapter adapter;
     private final ArrayList<String> roots = new ArrayList<>();
     private boolean scanning;
+    private OcrProvider activeOcrProvider;
+    private Bitmap activeOcrBitmap;
+    private boolean activeOcrRunning;
     private final LruCache<String, Bitmap> thumbnailCache = new LruCache<>(cacheSize()) {
         @Override
         protected int sizeOf(String key, Bitmap bitmap) {
@@ -152,14 +155,25 @@ public final class MainActivity extends AppCompatActivity {
             regexToggle.setBackgroundTintList(android.content.res.ColorStateList.valueOf(enabled
                     ? Color.rgb(63, 135, 108)
                     : (night ? Color.rgb(48, 75, 63) : Color.rgb(226, 239, 230))));
-            searchBox.setHint(enabled ? "正则搜索：描述、标签或文件名" : "⌕  搜索描述、标签或文件名");
-            loadResults();
         });
-        searchBox.setHint(regexEnabled ? "正则搜索：描述、标签或文件名" : "⌕  搜索描述、标签或文件名");
+        searchBox.setHint("搜索描述、标签、文件名");
+        searchBox.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        searchBox.setOnEditorActionListener((view, actionId, event) -> {
+            boolean enterPressed = event != null
+                    && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER
+                    && event.getAction() == android.view.KeyEvent.ACTION_DOWN;
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH || enterPressed) {
+                loadResults();
+                return true;
+            }
+            return false;
+        });
         page.addView(titleRow);
         searchBox.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { loadResults(); }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (!preferences.getBoolean("regex_search", false)) loadResults();
+            }
             @Override public void afterTextChanged(Editable s) { }
         });
         LinearLayout state = new LinearLayout(this); state.setGravity(Gravity.CENTER_VERTICAL); state.setPadding(dp(4), 0, dp(4), 0);
@@ -405,7 +419,9 @@ public final class MainActivity extends AppCompatActivity {
         form.addView(preview, new LinearLayout.LayoutParams(-1, dp(190)));
         worker.execute(() -> {
             Bitmap bitmap = loadThumbnail(item.uri);
-            if (bitmap != null) runOnUiThread(() -> preview.setImageBitmap(bitmap));
+            if (bitmap != null && !isFinishing() && !isDestroyed()) {
+                runOnUiThread(() -> preview.setImageBitmap(bitmap));
+            }
         });
         Button viewImage = button("查看大图");
         viewImage.setOnClickListener(v -> showImageViewer(item));
@@ -417,6 +433,12 @@ public final class MainActivity extends AppCompatActivity {
         description.setText(item.description);
         styleInput(description);
         form.addView(description, new LinearLayout.LayoutParams(-1, -2));
+
+        Button recognize = button("识别文字（端侧）");
+        LinearLayout.LayoutParams recognizeParams = new LinearLayout.LayoutParams(-1, dp(42));
+        recognizeParams.topMargin = dp(6);
+        form.addView(recognize, recognizeParams);
+
         EditText tags = new EditText(this);
         tags.setHint("标签，用逗号分隔");
         tags.setSingleLine(true);
@@ -425,7 +447,113 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams tagParams = new LinearLayout.LayoutParams(-1, -2);
         tagParams.topMargin = dp(8);
         form.addView(tags, tagParams);
+
         final AlertDialog[] dialogHolder = new AlertDialog[1];
+        final OcrProvider[] ocrProvider = {null};
+        final boolean[] ocrRunning = {false};
+        final Bitmap[] ocrBitmap = {null};
+        recognize.setOnClickListener(v -> {
+            if (ocrRunning[0] || dialogHolder[0] == null || !dialogHolder[0].isShowing()) return;
+            ocrRunning[0] = true;
+            recognize.setEnabled(false);
+            recognize.setText("正在准备图片并识别…");
+            worker.execute(() -> {
+                Bitmap bitmap;
+                try {
+                    bitmap = OcrImageLoader.decode(getContentResolver(), Uri.parse(item.uri));
+                } catch (Exception error) {
+                    runOnUiThread(() -> {
+                        ocrRunning[0] = false;
+                        if (dialogHolder[0] == null || !dialogHolder[0].isShowing()
+                                || isFinishing() || isDestroyed()) {
+                            if (ocrProvider[0] != null) {
+                                ocrProvider[0].close();
+                                ocrProvider[0] = null;
+                            }
+                            return;
+                        }
+                        Toast.makeText(this, "图片无法读取或解码，未保存任何内容", Toast.LENGTH_LONG).show();
+                        recognize.setEnabled(true);
+                        recognize.setText("重试识别文字");
+                    });
+                    return;
+                }
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed() || dialogHolder[0] == null
+                            || !dialogHolder[0].isShowing()) {
+                        bitmap.recycle();
+                        ocrRunning[0] = false;
+                        return;
+                    }
+                    if (ocrProvider[0] == null) {
+                        ocrProvider[0] = new LocalOcrProvider();
+                        activeOcrProvider = ocrProvider[0];
+                    }
+                    ocrBitmap[0] = bitmap;
+                    activeOcrBitmap = bitmap;
+                    activeOcrRunning = true;
+                    ocrProvider[0].recognize(bitmap, new OcrProvider.Callback() {
+                        @Override public void onSuccess(String text) {
+                            if (isFinishing() || isDestroyed() || dialogHolder[0] == null
+                                    || !dialogHolder[0].isShowing()) return;
+                            String recognizedText = OcrTextUtils.normalize(text);
+                            if (recognizedText.isEmpty()) {
+                                Toast.makeText(MainActivity.this, "没有识别到文字", Toast.LENGTH_SHORT).show();
+                                return;
+                            }
+                            String existing = description.getText().toString();
+                            if (existing.trim().isEmpty()) {
+                                description.setText(recognizedText);
+                                description.setSelection(description.length());
+                                Toast.makeText(MainActivity.this, "已填入识别结果，请检查后保存", Toast.LENGTH_SHORT).show();
+                            } else {
+                                new AlertDialog.Builder(MainActivity.this)
+                                        .setTitle("已有图片描述")
+                                        .setMessage("如何处理识别出的文字？")
+                                        .setPositiveButton("替换", (d, which) -> {
+                                            description.setText(recognizedText);
+                                            description.setSelection(description.length());
+                                        })
+                                        .setNeutralButton("追加", (d, which) -> {
+                                            description.setText(OcrTextUtils.append(existing, recognizedText));
+                                            description.setSelection(description.length());
+                                        })
+                                        .setNegativeButton("取消", null)
+                                        .show();
+                            }
+                        }
+
+                        @Override public void onFailure(Exception error) {
+                            if (!isFinishing() && !isDestroyed() && dialogHolder[0] != null
+                                    && dialogHolder[0].isShowing()) {
+                                Toast.makeText(MainActivity.this, "文字识别失败，请检查图片后重试", Toast.LENGTH_LONG).show();
+                            }
+                        }
+
+                        @Override public void onComplete() {
+                            Bitmap completed = ocrBitmap[0];
+                            ocrBitmap[0] = null;
+                            activeOcrBitmap = null;
+                            if (completed != null && !completed.isRecycled()) completed.recycle();
+                            ocrRunning[0] = false;
+                            activeOcrRunning = false;
+                            if (ocrProvider[0] != null && (isFinishing() || isDestroyed()
+                                    || dialogHolder[0] == null || !dialogHolder[0].isShowing())) {
+                                ocrProvider[0].close();
+                                ocrProvider[0] = null;
+                                activeOcrProvider = null;
+                            }
+                            if (!isFinishing() && !isDestroyed() && dialogHolder[0] != null
+                                    && dialogHolder[0].isShowing()) {
+                                recognize.setEnabled(true);
+                                recognize.setText("再次识别文字（端侧）");
+                            }
+                        }
+                    });
+                });
+            });
+        });
+
         LinearLayout actions = new LinearLayout(this);
         actions.setGravity(Gravity.CENTER_VERTICAL);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -449,8 +577,11 @@ public final class MainActivity extends AppCompatActivity {
             worker.execute(() -> {
                 database.updateText(item.uri, descriptionText, normalizedTags);
                 runOnUiThread(() -> {
-                    Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
-                    loadResults();
+                    if (!isFinishing() && !isDestroyed()) {
+                        Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
+                        dialogHolder[0].dismiss();
+                        loadResults();
+                    }
                 });
             });
         });
@@ -468,6 +599,19 @@ public final class MainActivity extends AppCompatActivity {
                 .setView(form)
                 .create();
         dialogHolder[0] = dialog;
+        dialog.setOnDismissListener(ignored -> {
+            if (ocrRunning[0]) return;
+            if (ocrProvider[0] != null) {
+                ocrProvider[0].close();
+                ocrProvider[0] = null;
+            }
+            activeOcrProvider = null;
+            if (ocrBitmap[0] != null && !ocrBitmap[0].isRecycled()) {
+                ocrBitmap[0].recycle();
+                ocrBitmap[0] = null;
+            }
+            activeOcrBitmap = null;
+        });
         dialog.show();
     }
 
@@ -641,6 +785,12 @@ public final class MainActivity extends AppCompatActivity {
     private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 
     @Override protected void onDestroy() {
+        if (!activeOcrRunning) {
+            if (activeOcrProvider != null) activeOcrProvider.close();
+            activeOcrProvider = null;
+            if (activeOcrBitmap != null && !activeOcrBitmap.isRecycled()) activeOcrBitmap.recycle();
+            activeOcrBitmap = null;
+        }
         super.onDestroy();
         worker.shutdown();
         database.close();
