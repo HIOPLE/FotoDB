@@ -5,7 +5,7 @@
 # FotoDB
 
 <p>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL-3.0" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
   <img src="https://img.shields.io/badge/Platform-Android-green.svg" alt="Platform: Android" />
   <img src="https://img.shields.io/badge/Min%20SDK-24-orange.svg" alt="Min SDK: 24" />
 </p>
