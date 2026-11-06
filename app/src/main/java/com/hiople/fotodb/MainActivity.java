@@ -258,7 +258,9 @@ public final class MainActivity extends AppCompatActivity {
 
     private void chooseFolder() {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
 
         folderLauncher.launch(intent);
     }
@@ -502,25 +504,37 @@ public final class MainActivity extends AppCompatActivity {
                                 return;
                             }
                             String existing = description.getText().toString();
-                            if (existing.trim().isEmpty()) {
-                                description.setText(recognizedText);
-                                description.setSelection(description.length());
-                                Toast.makeText(MainActivity.this, "已填入识别结果，请检查后保存", Toast.LENGTH_SHORT).show();
-                            } else {
-                                new AlertDialog.Builder(MainActivity.this)
-                                        .setTitle("已有图片描述")
-                                        .setMessage("如何处理识别出的文字？")
-                                        .setPositiveButton("替换", (d, which) -> {
-                                            description.setText(recognizedText);
+                            EditText recognizedEditor = new EditText(MainActivity.this);
+                            recognizedEditor.setText(recognizedText);
+                            recognizedEditor.setMinLines(4);
+                            recognizedEditor.setMaxLines(10);
+                            recognizedEditor.setGravity(Gravity.TOP | Gravity.START);
+                            recognizedEditor.setHint("可修改识别出的文字");
+                            styleInput(recognizedEditor);
+                            LinearLayout editorContainer = new LinearLayout(MainActivity.this);
+                            editorContainer.setOrientation(LinearLayout.VERTICAL);
+                            editorContainer.setPadding(dp(24), 0, dp(24), 0);
+                            editorContainer.addView(recognizedEditor, new LinearLayout.LayoutParams(-1, -2));
+                            new AlertDialog.Builder(MainActivity.this)
+                                    .setTitle(existing.trim().isEmpty() ? "识别出的文字" : "已有图片描述")
+                                    .setMessage("可先编辑识别结果，再选择替换或追加")
+                                    .setView(editorContainer)
+                                    .setPositiveButton("替换", (d, which) -> {
+                                        String editedText = recognizedEditor.getText().toString().trim();
+                                        if (!editedText.isEmpty()) {
+                                            description.setText(editedText);
                                             description.setSelection(description.length());
-                                        })
-                                        .setNeutralButton("追加", (d, which) -> {
-                                            description.setText(OcrTextUtils.append(existing, recognizedText));
+                                        }
+                                    })
+                                    .setNeutralButton("追加", (d, which) -> {
+                                        String editedText = recognizedEditor.getText().toString().trim();
+                                        if (!editedText.isEmpty()) {
+                                            description.setText(OcrTextUtils.append(existing, editedText));
                                             description.setSelection(description.length());
-                                        })
-                                        .setNegativeButton("取消", null)
-                                        .show();
-                            }
+                                        }
+                                    })
+                                    .setNegativeButton("取消", null)
+                                    .show();
                         }
 
                         @Override public void onFailure(Exception error) {
@@ -557,16 +571,30 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout actions = new LinearLayout(this);
         actions.setGravity(Gravity.CENTER_VERTICAL);
         actions.setOrientation(LinearLayout.HORIZONTAL);
-        Button remove = button("移除记录");
+        Button remove = button("删除图片");
         remove.setOnClickListener(v -> {
-            worker.execute(() -> {
-                database.remove(item.uri);
-                runOnUiThread(() -> {
-                    Toast.makeText(this, "已从数据库移除，原图未删除", Toast.LENGTH_SHORT).show();
-                    loadResults();
-                });
-            });
-            dialogHolder[0].dismiss();
+            AlertDialog confirm = new AlertDialog.Builder(this)
+                    .setTitle("删除图片？")
+                    .setMessage("将从文件夹中永久删除“" + item.name + "”，同时移除本地索引。此操作不可撤销。")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("删除", (dialog, which) -> {
+                        dialogHolder[0].dismiss();
+                        worker.execute(() -> {
+                            try {
+                                DocumentsContract.deleteDocument(getContentResolver(), Uri.parse(item.uri));
+                                database.remove(item.uri);
+                                runOnUiThread(() -> {
+                                    Toast.makeText(this, "图片已从文件夹中删除", Toast.LENGTH_SHORT).show();
+                                    loadResults();
+                                });
+                            } catch (Exception error) {
+                                runOnUiThread(() -> Toast.makeText(this,
+                                        "删除失败，图片仍保留在文件夹中", Toast.LENGTH_LONG).show());
+                            }
+                        });
+                    })
+                    .create();
+            confirm.show();
         });
         Button cancel = button("取消");
         cancel.setOnClickListener(v -> dialogHolder[0].dismiss());
