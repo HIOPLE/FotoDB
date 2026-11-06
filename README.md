@@ -6,6 +6,7 @@
 
 <p>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="https://github.com/hiople/FotoDB/actions/workflows/auto-release.yml"><img src="https://github.com/hiople/FotoDB/actions/workflows/auto-release.yml/badge.svg" alt="构建状态" /></a>
   <img src="https://img.shields.io/badge/Platform-Android-green.svg" alt="Platform: Android" />
   <img src="https://img.shields.io/badge/Min%20SDK-24-orange.svg" alt="Min SDK: 24" />
 </p>
