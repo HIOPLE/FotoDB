@@ -63,7 +63,7 @@ final class ImageDatabase extends SQLiteOpenHelper {
             }
             selection = "root IN (" + placeholders + ")";
         } else {
-            String pattern = "%" + query.trim().replace("%", "\\\\%").replace("_", "\\\\_") + "%";
+            String pattern = "%" + query.trim().replace("%", "\\%").replace("_", "\\_") + "%";
             args = new String[roots.size() + 3];
             for (int i = 0; i < roots.size(); i++) {
                 if (i > 0) placeholders.append(',');
@@ -73,7 +73,7 @@ final class ImageDatabase extends SQLiteOpenHelper {
             args[roots.size()] = pattern;
             args[roots.size() + 1] = pattern;
             args[roots.size() + 2] = pattern;
-            selection = "root IN (" + placeholders + ") AND (name LIKE ? ESCAPE '\\\\' OR description LIKE ? ESCAPE '\\\\' OR tags LIKE ? ESCAPE '\\\\')";
+            selection = "root IN (" + placeholders + ") AND (name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')";
         }
         try (Cursor cursor = getReadableDatabase().query("images", new String[]{"uri", "root", "name", "mime", "description", "tags"}, selection, args, null, null, "name COLLATE NOCASE")) {
             while (cursor.moveToNext()) {
