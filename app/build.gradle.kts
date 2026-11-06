@@ -39,6 +39,7 @@ dependencies {
     implementation(libs.mlkit.text.recognition.chinese)
     implementation(libs.androidx.exifinterface)
     implementation(libs.gifDecoder)
+    implementation(libs.opencc4j)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
